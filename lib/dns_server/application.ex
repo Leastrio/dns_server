@@ -8,6 +8,7 @@ defmodule DnsServer.Application do
   @impl true
   def start(_type, _args) do
     children = [
+      {Task.Supervisor, name: DnsServer.TaskSupervisor},
       {DnsServer.Listener, port: 2053}
     ]
 

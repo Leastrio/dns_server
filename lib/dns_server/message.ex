@@ -17,14 +17,8 @@ defmodule DnsServer.Message do
     def parse(data, qdcount), do: parse(data, qdcount, [])
     defp parse(data, 0, questions), do: {questions, data}
     defp parse(data, count, questions) do
-      {name, <<type::16, class::16, rest::binary>>} = parse_name(data, [])
+      {name, <<type::16, class::16, rest::binary>>} = DnsServer.Message.parse_name(data, [])
       parse(rest, count - 1, [%__MODULE__{name: name, type: type, class: class} | questions])
-    end
-
-    defp parse_name(<<0, rest::binary>>, labels), do: {Enum.reverse(labels), rest}
-    defp parse_name(<<len::8, rest::binary>>, labels) do
-      <<label::binary-size(len), rest::binary>> = rest
-      parse_name(rest, [label | labels])
     end
 
     def build(%__MODULE__{} = s) do
@@ -35,26 +29,30 @@ defmodule DnsServer.Message do
     end
   end
 
+  defmodule ResourceRecord do
+    defstruct [:name, :type, :class, :ttl, :rdlength, :rdata]
+
+    def parse(data, count), do: parse(data, count, [])
+    defp parse(data, 0, records), do: {records, data}
+    defp parse(data, count, records) do
+      {name, <<type::16, class::16, ttl::32, rdlength::16, rdata::bitstring-size(rdlength * 8), rest::binary>>} = DnsServer.Message.parse_name(data, [])
+      parse(rest, count - 1, [%__MODULE__{name: name, type: type, class: class, ttl: ttl, rdlength: rdlength, rdata: rdata} | records])
+    end
+  end
+
   def parse(<<header::bitstring-size(96), rest::binary>>) do
     header = Header.parse(header)
     {questions, rest} = Question.parse(rest, header.qdcount)
+    {answers, rest} = ResourceRecord.parse(rest, header.ancount)
+    {authorities, rest} = ResourceRecord.parse(rest, header.nscount)
+    {additional, _} = ResourceRecord.parse(rest, header.arcount)
 
-    {header, questions}
-  end
-
-  def build() do
-    build_header() <> build_question() <> build_answer()
-  end
-  
-  defp build_header() do
-    <<1234::16, 1::1, 0::4, 0::1, 0::1, 0::1, 0::1, 0::3, 0::4, 1::16, 1::16, 0::16, 0::16>>
+    %{header: header, questions: questions, answers: answers, authorities: authorities, additional: additional}
   end
 
-  defp build_question() do 
-    <<12, "codecrafters", 2, "io", 0, 1::16, 1::16>>
-  end
-  
-  defp build_answer() do
-    <<12, "codecrafters", 2, "io", 0, 1::16, 1::16, 60::32, 4::16, 8::8, 8::8, 8::8, 8::8>>
+  def parse_name(<<0, rest::binary>>, labels), do: {Enum.reverse(labels), rest}
+  def parse_name(<<len::8, rest::binary>>, labels) do
+    <<label::binary-size(len), rest::binary>> = rest
+    parse_name(rest, [label | labels])
   end
 end
