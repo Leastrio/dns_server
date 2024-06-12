@@ -24,7 +24,7 @@ defmodule DnsServer.Message do
     def build(%__MODULE__{} = s) do
       Enum.reduce(s.name, <<>>, fn label, acc -> 
         l_length = String.length(label)
-        acc <> <<l_length, label>>
+        acc <> <<l_length::integer-size(8), label::binary-size(l_length)>>
       end) <> <<0>> <> <<s.type::16, s.class::16>>
     end
   end
@@ -37,6 +37,13 @@ defmodule DnsServer.Message do
     defp parse(data, count, records) do
       {name, <<type::16, class::16, ttl::32, rdlength::16, rdata::bitstring-size(rdlength * 8), rest::binary>>} = DnsServer.Message.parse_name(data, [])
       parse(rest, count - 1, [%__MODULE__{name: name, type: type, class: class, ttl: ttl, rdlength: rdlength, rdata: rdata} | records])
+    end
+
+    def build(%__MODULE__{} = s) do
+      Enum.reduce(s.name, <<>>, fn label, acc -> 
+        l_length = String.length(label)
+        acc <> <<l_length::integer-size(8), label::binary-size(l_length)>>
+      end) <> <<0>> <> <<s.type::16, s.class::16, s.ttl::32, s.rdlength::16, s.rdata::size(s.rdlength * 8)>>
     end
   end
 
@@ -54,5 +61,17 @@ defmodule DnsServer.Message do
   def parse_name(<<len::8, rest::binary>>, labels) do
     <<label::binary-size(len), rest::binary>> = rest
     parse_name(rest, [label | labels])
+  end
+
+  def build(msg) do
+    header = %Header{id: msg.header.id, qr: 1, opcode: 0, aa: 0, tc: 0, rd: 0, ra: 0, z: 0, rcode: 0, qdcount: 1, ancount: 1, nscount: 0, arcount: 0} |> Header.build()
+    question = %Question{name: ["google", "com"], type: 1, class: 1} |> Question.build()
+    answer = %ResourceRecord{name: ["google", "com"], type: 1, class: 1, ttl: 60, rdlength: 4, rdata: ip_to_data({142, 250, 72, 14})} |> ResourceRecord.build()
+
+    header <> question <> answer
+  end
+
+  defp ip_to_data({first, second, third, fourth}) do
+    :binary.decode_unsigned(<<first::8, second::8, third::8, fourth::8>>)
   end
 end

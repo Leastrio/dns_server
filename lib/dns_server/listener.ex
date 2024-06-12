@@ -15,8 +15,8 @@ defmodule DnsServer.Listener do
   def handle_info({:udp, _pid, host, port, msg}, socket) do
     Task.Supervisor.start_child(DnsServer.TaskSupervisor, fn ->
       Logger.info("Recieved message...")
-      Message.parse(msg) |> IO.inspect()
-      :gen_udp.send(socket, host, port, "")
+      msg = Message.parse(msg) |> IO.inspect() |> Message.build()
+      :gen_udp.send(socket, host, port, msg)
     end)
     {:noreply, socket}
   end
