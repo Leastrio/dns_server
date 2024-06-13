@@ -71,7 +71,5 @@ defmodule DnsServer.Message do
     header <> question <> answer
   end
 
-  defp ip_to_data({first, second, third, fourth}) do
-    :binary.decode_unsigned(<<first::8, second::8, third::8, fourth::8>>)
-  end
+  defp ip_to_data({first, second, third, fourth}), do: :binary.decode_unsigned(<<first::8, second::8, third::8, fourth::8>>)
 end
