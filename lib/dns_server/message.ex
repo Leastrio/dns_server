@@ -35,8 +35,7 @@ defmodule DnsServer.Message do
     def parse(data, count, buf), do: parse(data, count, [], buf)
     defp parse(data, 0, records, _buf), do: {records, data}
     defp parse(data, count, records, buf) do
-      IO.inspect(data)
-      {name, <<type::16, class::16, ttl::32, rdlength::16, rdata::bitstring-size(rdlength * 8), rest::binary>>} = DnsServer.Message.parse_name(data, [], buf)
+      {name, <<type::16, class::16, ttl::32, rdlength::16, rdata::binary-size(rdlength), rest::binary>>} = DnsServer.Message.parse_name(data, [], buf)
       parse(rest, count - 1, [%__MODULE__{name: name, type: type, class: class, ttl: ttl, rdlength: rdlength, rdata: rdata} | records], buf)
     end
 
@@ -55,15 +54,14 @@ defmodule DnsServer.Message do
     {authorities, rest} = ResourceRecord.parse(rest, header.nscount, buf)
     {additional, _} = ResourceRecord.parse(rest, header.arcount, buf)
 
-    %{header: header, questions: questions, answers: answers, authorities: authorities, additional: additional}
+    %{header: header, questions: questions, answers: answers, authorities: authorities, additional: additional} |> IO.inspect()
   end
 
-  def parse_name(<<0, rest::binary>>, labels, _buf), do: {Enum.reverse(labels), rest}
+  def parse_name(<<0::8, rest::binary>>, labels, _buf), do: {Enum.reverse(labels), rest}
   def parse_name(<<1::1, 1::1, offset::14, rest::binary>>, labels, buf) do
     <<_::binary-size(offset), part::binary>> = buf
     {pointer_labels, _} = parse_name(part, labels, buf)
-    IO.inspect(pointer_labels)
-    parse_name(rest, pointer_labels, buf)
+    {pointer_labels, rest}
   end
   def parse_name(<<len::8, rest::binary>>, labels, buf) do
     <<label::binary-size(len), rest::binary>> = rest
