@@ -13,6 +13,7 @@ defmodule DnsServer.RootHints do
       |> Enum.flat_map(fn line -> 
         with false <- String.starts_with?(line, ";"),
              [_name, _ttl, "A", ip] <- String.split(line, " ", trim: true) do
+              ip = ip |> String.split(".") |> Enum.map(&String.to_integer/1) |> List.to_tuple()
               [ip]
         else
           _ -> []

@@ -1,7 +1,6 @@
 defmodule DnsServer.Listener do
   require Logger
   use GenServer
-  alias DnsServer.Message
 
   def start_link(port: port) do
     GenServer.start_link(__MODULE__, port, name: __MODULE__)
@@ -15,8 +14,8 @@ defmodule DnsServer.Listener do
   def handle_info({:udp, _pid, host, port, msg}, socket) do
     Task.Supervisor.start_child(DnsServer.TaskSupervisor, fn ->
       Logger.info("Recieved message...")
-      msg = Message.parse(msg) |> IO.inspect() |> Message.build()
-      :gen_udp.send(socket, host, port, msg)
+      response = DnsServer.Handler.process_message(msg)
+      :gen_udp.send(socket, host, port, response)
     end)
     {:noreply, socket}
   end

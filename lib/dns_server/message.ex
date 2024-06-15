@@ -14,11 +14,11 @@ defmodule DnsServer.Message do
   defmodule Question do
     defstruct [:name, :type, :class]
 
-    def parse(data, qdcount), do: parse(data, qdcount, [])
-    defp parse(data, 0, questions), do: {questions, data}
-    defp parse(data, count, questions) do
-      {name, <<type::16, class::16, rest::binary>>} = DnsServer.Message.parse_name(data, [])
-      parse(rest, count - 1, [%__MODULE__{name: name, type: type, class: class} | questions])
+    def parse(data, qdcount, buf), do: parse(data, qdcount, [], buf)
+    defp parse(data, 0, questions, _buf), do: {questions, data}
+    defp parse(data, count, questions, buf) do
+      {name, <<type::16, class::16, rest::binary>>} = DnsServer.Message.parse_name(data, [], buf)
+      parse(rest, count - 1, [%__MODULE__{name: name, type: type, class: class} | questions], buf)
     end
 
     def build(%__MODULE__{} = s) do
@@ -32,11 +32,12 @@ defmodule DnsServer.Message do
   defmodule ResourceRecord do
     defstruct [:name, :type, :class, :ttl, :rdlength, :rdata]
 
-    def parse(data, count), do: parse(data, count, [])
-    defp parse(data, 0, records), do: {records, data}
-    defp parse(data, count, records) do
-      {name, <<type::16, class::16, ttl::32, rdlength::16, rdata::bitstring-size(rdlength * 8), rest::binary>>} = DnsServer.Message.parse_name(data, [])
-      parse(rest, count - 1, [%__MODULE__{name: name, type: type, class: class, ttl: ttl, rdlength: rdlength, rdata: rdata} | records])
+    def parse(data, count, buf), do: parse(data, count, [], buf)
+    defp parse(data, 0, records, _buf), do: {records, data}
+    defp parse(data, count, records, buf) do
+      IO.inspect(data)
+      {name, <<type::16, class::16, ttl::32, rdlength::16, rdata::bitstring-size(rdlength * 8), rest::binary>>} = DnsServer.Message.parse_name(data, [], buf)
+      parse(rest, count - 1, [%__MODULE__{name: name, type: type, class: class, ttl: ttl, rdlength: rdlength, rdata: rdata} | records], buf)
     end
 
     def build(%__MODULE__{} = s) do
@@ -47,20 +48,26 @@ defmodule DnsServer.Message do
     end
   end
 
-  def parse(<<header::bitstring-size(96), rest::binary>>) do
+  def parse(<<header::bitstring-size(96), rest::binary>> = buf) do
     header = Header.parse(header)
-    {questions, rest} = Question.parse(rest, header.qdcount)
-    {answers, rest} = ResourceRecord.parse(rest, header.ancount)
-    {authorities, rest} = ResourceRecord.parse(rest, header.nscount)
-    {additional, _} = ResourceRecord.parse(rest, header.arcount)
+    {questions, rest} = Question.parse(rest, header.qdcount, buf)
+    {answers, rest} = ResourceRecord.parse(rest, header.ancount, buf)
+    {authorities, rest} = ResourceRecord.parse(rest, header.nscount, buf)
+    {additional, _} = ResourceRecord.parse(rest, header.arcount, buf)
 
     %{header: header, questions: questions, answers: answers, authorities: authorities, additional: additional}
   end
 
-  def parse_name(<<0, rest::binary>>, labels), do: {Enum.reverse(labels), rest}
-  def parse_name(<<len::8, rest::binary>>, labels) do
+  def parse_name(<<0, rest::binary>>, labels, _buf), do: {Enum.reverse(labels), rest}
+  def parse_name(<<1::1, 1::1, offset::14, rest::binary>>, labels, buf) do
+    <<_::binary-size(offset), part::binary>> = buf
+    {pointer_labels, _} = parse_name(part, labels, buf)
+    IO.inspect(pointer_labels)
+    parse_name(rest, pointer_labels, buf)
+  end
+  def parse_name(<<len::8, rest::binary>>, labels, buf) do
     <<label::binary-size(len), rest::binary>> = rest
-    parse_name(rest, [label | labels])
+    parse_name(rest, [label | labels], buf)
   end
 
   def build(msg) do
