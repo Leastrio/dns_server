@@ -14,8 +14,9 @@ defmodule DnsServer.Listener do
   def handle_info({:udp, _pid, host, port, msg}, socket) do
     Task.Supervisor.start_child(DnsServer.TaskSupervisor, fn ->
       Logger.info("Recieved message...")
-      response = DnsServer.Handler.process_message(msg)
+      {time, response} = :timer.tc(&DnsServer.Handler.process_message/1, [msg], :millisecond)
       :gen_udp.send(socket, host, port, response)
+      Logger.info("Handled in #{time} ms")
     end)
     {:noreply, socket}
   end
