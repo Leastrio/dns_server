@@ -1,4 +1,6 @@
 defmodule DnsServer.Message do
+  defstruct [:header, :questions, :answers, :authorities, :additional]
+  
   defmodule Header do
     defstruct [:id, :qr, :opcode, :aa, :tc, :rd, :ra, :z, :rcode, :qdcount, :ancount, :nscount, :arcount]
 
@@ -22,10 +24,7 @@ defmodule DnsServer.Message do
     end
 
     def build(%__MODULE__{} = s) do
-      Enum.reduce(s.name, <<>>, fn label, acc -> 
-        l_length = String.length(label)
-        acc <> <<l_length::integer-size(8), label::binary-size(l_length)>>
-      end) <> <<0>> <> <<s.type::16, s.class::16>>
+      DnsServer.Message.build_name(s.name) <> <<s.type::16, s.class::16>>
     end
   end
 
@@ -36,15 +35,25 @@ defmodule DnsServer.Message do
     defp parse(data, 0, records, _buf), do: {records, data}
     defp parse(data, count, records, buf) do
       {name, <<type::16, class::16, ttl::32, rdlength::16, rdata::binary-size(rdlength), rest::binary>>} = DnsServer.Message.parse_name(data, [], buf)
+      rdata = if type == 2 do
+        {ns_names, _} = DnsServer.Message.parse_name(rdata, [], buf)
+        {:label, ns_names}
+      else
+        {:data, rdata}
+      end
       parse(rest, count - 1, [%__MODULE__{name: name, type: type, class: class, ttl: ttl, rdlength: rdlength, rdata: rdata} | records], buf)
     end
 
     def build(%__MODULE__{} = s) do
-      Enum.reduce(s.name, <<>>, fn label, acc -> 
-        l_length = String.length(label)
-        acc <> <<l_length::integer-size(8), label::binary-size(l_length)>>
-      end) <> <<0>> <> <<s.type::16, s.class::16, s.ttl::32, s.rdlength::16, s.rdata::size(s.rdlength * 8)>>
+      DnsServer.Message.build_name(s.name) <> <<s.type::16, s.class::16, s.ttl::32>> <> build_rdata(s.rdata, s.rdlength)
     end
+
+    defp build_rdata({:label, labels}, _len) do
+      name = DnsServer.Message.build_name(labels)
+      len = byte_size(name)
+      <<len::16>> <> name
+    end
+    defp build_rdata({:data, rdata}, len), do: <<len::16, rdata::binary-size(len)>>
   end
 
   def parse(<<header::bitstring-size(96), rest::binary>> = buf) do
@@ -54,7 +63,7 @@ defmodule DnsServer.Message do
     {authorities, rest} = ResourceRecord.parse(rest, header.nscount, buf)
     {additional, _} = ResourceRecord.parse(rest, header.arcount, buf)
 
-    %{header: header, questions: questions, answers: answers, authorities: authorities, additional: additional} |> IO.inspect()
+    %__MODULE__{header: header, questions: questions, answers: answers, authorities: authorities, additional: additional}
   end
 
   def parse_name(<<0::8, rest::binary>>, labels, _buf), do: {Enum.reverse(labels), rest}
@@ -68,13 +77,20 @@ defmodule DnsServer.Message do
     parse_name(rest, [label | labels], buf)
   end
 
-  def build(msg) do
-    header = %Header{id: msg.header.id, qr: 1, opcode: 0, aa: 0, tc: 0, rd: 0, ra: 0, z: 0, rcode: 0, qdcount: 1, ancount: 1, nscount: 0, arcount: 0} |> Header.build()
-    question = %Question{name: ["google", "com"], type: 1, class: 1} |> Question.build()
-    answer = %ResourceRecord{name: ["google", "com"], type: 1, class: 1, ttl: 60, rdlength: 4, rdata: ip_to_data({142, 250, 72, 14})} |> ResourceRecord.build()
-
-    header <> question <> answer
+  def build_name(labels) do
+    Enum.reduce(labels, <<>>, fn label, acc -> 
+      l_length = String.length(label)
+      acc <> <<l_length::integer-size(8), label::binary-size(l_length)>>
+    end) <> <<0>>
   end
 
-  defp ip_to_data({first, second, third, fourth}), do: :binary.decode_unsigned(<<first::8, second::8, third::8, fourth::8>>)
+  def build(msg) do
+    header = msg.header |> Header.build()
+    questions = Enum.reduce(msg.questions, <<>>, fn q, acc -> acc <> Question.build(q) end)
+    answers = Enum.reduce(msg.answers, <<>>, fn a, acc -> acc <> ResourceRecord.build(a) end)
+    authorities = Enum.reduce(msg.authorities, <<>>, fn a, acc -> acc <> ResourceRecord.build(a) end)
+    additional = Enum.reduce(msg.additional, <<>>, fn a, acc -> acc <> ResourceRecord.build(a) end)
+
+    header <> questions <> answers <> authorities <> additional
+  end
 end
